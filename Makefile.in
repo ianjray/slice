@@ -1,0 +1,77 @@
+.POSIX:
+.SUFFIXES:
+.SUFFIXES: .c .o .uto
+
+VERSION    = 1.0.0
+
+CC         = @CC@
+CCOV       = gcov
+CFLAGS     = @CFLAGS@
+CFLAGS_COV = @CFLAGS_COV@
+CFLAGS_SAN = @CFLAGS_SAN@
+INCLUDEDIR = @PREFIX@/include
+LD         = @LD@
+LIBDIR     = @PREFIX@/lib
+PREFIX     = @PREFIX@
+
+.PHONY: all
+all: libslice.a
+
+libslice.a: slice.o
+	$(LD) -r $^ -o $@
+
+.c.o:
+	$(CC) $(CFLAGS) -I. -c $^ -o $@
+
+.c.uto:
+	$(CC) $(CFLAGS) $(CFLAGS_COV) $(CFLAGS_SAN) -I. -c $^ -o $@
+
+test_readme: README.md libslice.a
+	awk '/```c/{ C=1; next } /```/{ C=0 } C' README.md | sed -e 's#libslice/##' > test_readme.c
+	$(CC) $(CFLAGS) $(CFLAGS_SAN) -I. test_readme.c libslice.a -o $@
+	./$@
+
+slice.coverage: slice.uto tests/test_slice.uto
+	$(CC) $(CFLAGS) $(CFLAGS_COV) $(CFLAGS_SAN) -I. $^ -o $@
+	./$@
+	$(CCOV) slice.c
+	! grep "#####" slice.c.gcov |grep -ve "// UNREACHABLE$$"
+
+libslice.pc:
+	( echo 'Name: libslice' ;\
+	echo 'Version: $(VERSION)' ;\
+	echo 'Description: C byte-sequence slice library' ;\
+	echo 'prefix=$(PREFIX)' ;\
+	echo 'exec_prefix=$${prefix}' ;\
+	echo 'includedir=$${prefix}/include' ;\
+	echo 'libdir=$${prefix}/lib' ;\
+	echo 'Cflags: -I$${includedir}' ;\
+	echo 'Libs: -L$${libdir} -lslice' ) > $@
+
+.PHONY: test
+test: test_readme
+test: slice.coverage
+
+.PHONY: install
+install: slice.h libslice.a libslice.pc
+	mkdir -p $(DESTDIR)$(INCLUDEDIR)/libslice
+	mkdir -p $(DESTDIR)$(LIBDIR)/pkgconfig
+	install -m644 slice.h $(DESTDIR)$(INCLUDEDIR)/libslice/slice.h
+	install -m644 libslice.a $(DESTDIR)$(LIBDIR)/libslice.a
+	install -m644 libslice.pc $(DESTDIR)$(LIBDIR)/pkgconfig/libslice.pc
+
+.PHONY: uninstall
+uninstall:
+	rm -f $(DESTDIR)$(INCLUDEDIR)/libslice/slice.h
+	rm -f $(DESTDIR)$(LIBDIR)/libslice.a
+	rm -f $(DESTDIR)$(LIBDIR)/pkgconfig/libslice.pc
+
+.PHONY: clean
+clean:
+	rm -f *.o **/*.o *.uto **/*.uto *.gc?? **/*.gc?? *.coverage
+	rm -f libslice.a libslice.pc
+	rm -rf test_readme*
+
+.PHONY: distclean
+distclean: clean
+	rm -f Makefile config.status
